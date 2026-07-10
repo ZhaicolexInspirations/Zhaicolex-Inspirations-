@@ -451,7 +451,7 @@
         <input
           type="text"
           id="nombre"
-          placeholder="nNombre completo del cliente"
+          placeholder="Nombre completo del cliente"
           required
         />
       </div>
@@ -462,6 +462,16 @@
           type="number"
           id="N_contacto"
           placeholder="Número de celular"
+          required
+        />
+      </div>
+
+      <div class="field-group">
+        <label class="field-label" for="correo">Correo electrónico</label>
+        <input
+          type="text"
+          id="correo"
+          placeholder="Correo para enviarte la confirmación"
           required
         />
       </div>
@@ -604,6 +614,10 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="supabase.js"></script>
 <script src="auth-guard.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
+<script>
+  emailjs.init({ publicKey: "IRzgTp65xhOEEqyLJ" });
+</script>
 <script>
 document.addEventListener("DOMContentLoaded", async () => {
   await requireSesion();
@@ -975,6 +989,7 @@ document.addEventListener("DOMContentLoaded", async () => {
           document.querySelector('input[name="gramaje"]:checked')?.value ||
           null;
         const contacto = document.getElementById("N_contacto").value.trim();
+        const correo = document.getElementById("correo").value.trim();
         const pagacon = document.getElementById("pagacon").value.trim();
 
         if (!nombre) {
@@ -995,6 +1010,15 @@ document.addEventListener("DOMContentLoaded", async () => {
         }
         if (!contacto) {
           mostrarError("Por favor ingresa tu número de contacto.");
+          return;
+        }
+        if (!correo) {
+          mostrarError("Por favor ingresa tu correo electrónico.");
+          return;
+        }
+        const regexCorreo = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!regexCorreo.test(correo)) {
+          mostrarError("Por favor ingresa un correo electrónico válido.");
           return;
         }
 
@@ -1021,7 +1045,15 @@ document.addEventListener("DOMContentLoaded", async () => {
           " Contacto: " +
           contacto +
           "\n" +
+          " Correo: " +
+          correo +
+          "\n" +
           (pagacon ? " Nota: " + pagacon : "");
+
+        // ── Número de WhatsApp del NEGOCIO donde llegará el pedido ──
+        // Formato: código de país + número, SIN "+", SIN espacios ni guiones.
+        // Ejemplo Colombia: "573001234567"
+        const WHATSAPP_NUMERO_NEGOCIO = "573151821269";
 
         fetch("https://api.telegram.org/bot" + BOT_TOKEN + "/sendMessage", {
           method: "POST",
@@ -1032,8 +1064,30 @@ document.addEventListener("DOMContentLoaded", async () => {
           .then((data) => {
             if (data.ok) {
               alert(
-                "✅ Pedido registrado correctamente.\n\nEn un momento uno de nuestros asesores se contactará para confirmar.\n\n¡Gracias por elegir Zhaicolex Inspirations!"
+                "✅ Pedido registrado correctamente.\n\nSe abrirá WhatsApp para confirmarlo con nosotros, y te hemos enviado un correo de confirmación automáticamente.\n\n¡Gracias por elegir Zhaicolex Inspirations!"
               );
+
+              const linkWA =
+                "https://wa.me/" +
+                WHATSAPP_NUMERO_NEGOCIO +
+                "?text=" +
+                encodeURIComponent(mensaje);
+
+              window.open(linkWA, "_blank");
+
+              emailjs
+                .send("service_jv99csq", "template_36ltojh", {
+                  nombre: nombre,
+                  perfume: perfumeSeleccionado,
+                  cantidad: cantidad,
+                  gramaje: gramaje,
+                  contacto: contacto,
+                  nota: pagacon || "—",
+                  email: correo,
+                })
+                .catch((err) => {
+                  console.error("Error enviando correo:", err);
+                });
             } else {
               alert("❌ Error al enviar el pedido: " + data.description);
             }
