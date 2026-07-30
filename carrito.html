@@ -262,6 +262,32 @@
         border-top: 2px solid #000;
       }
 
+      .cliente-datos {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        margin-bottom: 16px;
+      }
+
+      .cliente-datos label {
+        font-size: 13px;
+        font-weight: 500;
+        color: #333;
+      }
+
+      .cliente-datos input {
+        padding: 10px;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        font-size: 14px;
+        font-family: Arial, Helvetica, sans-serif;
+      }
+
+      .cliente-datos input:focus {
+        outline: none;
+        border-color: #000;
+      }
+
       .checkout-btn {
         width: 100%;
         background: #000;
@@ -372,6 +398,7 @@
     </style>
   </head>
   <body>
+    <script src="funciones.js"></script>
     <!-- HEADER -->
     <header>
       <div class="logo">ZHAICOLEX INSPIRATIONS</div>
@@ -405,6 +432,16 @@
         <!-- RESUMEN -->
         <div class="summary-section" id="summary" style="display: none">
           <h2>Resumen del pedido</h2>
+
+          <!-- Datos del cliente (nuevo) -->
+          <div class="cliente-datos">
+            <label for="clienteNombre">Nombre completo</label>
+            <input type="text" id="clienteNombre" placeholder="Tu nombre completo" />
+
+            <label for="clienteCorreo">Correo electrónico</label>
+            <input type="text" id="clienteCorreo" placeholder="Para enviarte la confirmación" />
+          </div>
+
           <div class="summary-row">
             <span>Subtotal</span>
             <span id="subtotal">$ 0</span>
@@ -626,8 +663,18 @@
         });
       }
     </script>
+
+    <!-- EmailJS (nuevo: para el correo de confirmación al cliente) -->
+    <script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
+    <script>
+      emailjs.init({ publicKey: "IRzgTp65xhOEEqyLJ" });
+    </script>
+
     <script>
      async function checkout() {
+  const nombre = document.getElementById("clienteNombre").value.trim();
+  const correo = document.getElementById("clienteCorreo").value.trim();
+
   const total = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
   const totalEnCentavos = Math.round(total * 100);
   const referencia = "pedido_" + Date.now();
@@ -646,11 +693,41 @@
   });
 
   checkoutWidget.open(function (result) {
-    const transaction = result.transaction;
-    if (transaction.status === "APPROVED") {
-      const message = cart.map(item =>
-        `${item.brand} - ${item.name}\nTamaño: ${item.size}\nCantidad: ${item.quantity}\nPrecio: $${(item.price * item.quantity).toLocaleString("es-CO")}`
-      ).join("\n\n");
+    const transaction = result ? result.transaction : null;
+    const estadoPago = transaction ? transaction.status : "CANCELADO";
+
+    const message = cart.map(item =>
+      `${item.brand} - ${item.name}\nTamaño: ${item.size}\nCantidad: ${item.quantity}\nPrecio: $${(item.price * item.quantity).toLocaleString("es-CO")}`
+    ).join("\n\n");
+
+    // ── Notificación a Telegram vía Supabase Edge Function: SIEMPRE, sin importar el resultado del pago ──
+    fetch("https://nnjoifohytfgamkduunn.supabase.co/functions/v1/notificar-pedido", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5uam9pZm9oeXRmZ2Fta2R1dW5uIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODEyMzc2NjIsImV4cCI6MjA5NjgxMzY2Mn0.l17Szwu7BrKIH49wLqN-6C3_yjS4jHIMLLMQ-FL_lC4",
+      },
+      body: JSON.stringify({
+        nombre: nombre,
+        correo: correo,
+        detalleItems: message,
+        total: total.toLocaleString("es-CO"),
+        referencia: referencia,
+        estado: estadoPago,
+      }),
+    }).catch(err => console.error("Error notificando pedido a Telegram:", err));
+
+    // ── Correo de confirmación y WhatsApp: SOLO si el pago fue aprobado ──
+    if (estadoPago === "APPROVED") {
+      emailjs.send("service_jv99csq", "template_36ltojh", {
+        nombre: nombre,
+        perfume: message,
+        cantidad: cart.reduce((sum, item) => sum + item.quantity, 0),
+        gramaje: cart.map(i => i.size).join(", "),
+        contacto: "—",
+        nota: "Referencia: " + referencia,
+        email: correo,
+      }).catch(err => console.error("Error enviando correo:", err));
 
       const whatsappMessage = encodeURIComponent(
         `✅ ¡Hola! Ya realicé el pago.\n\n📦 Pedido:\n\n${message}\n\n💰 Total: $${total.toLocaleString("es-CO")}\n\n🧾 Referencia: ${referencia}`
@@ -665,6 +742,20 @@
     <button class="btn-arriba" onclick="irArriba()">↑</button>
     <script>
       function mostrarTerminos() {
+        // Validar datos del cliente (nuevo)
+        const nombre = document.getElementById("clienteNombre").value.trim();
+        const correo = document.getElementById("clienteCorreo").value.trim();
+        const regexCorreo = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+        if (!nombre) {
+          alert("Por favor ingresa tu nombre antes de continuar.");
+          return;
+        }
+        if (!correo || !regexCorreo.test(correo)) {
+          alert("Por favor ingresa un correo electrónico válido.");
+          return;
+        }
+
         // Crear modal si no existe
         if (document.getElementById("modalTerminos")) {
           document.getElementById("modalTerminos").style.display = "block";
